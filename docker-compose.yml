@@ -1,0 +1,14 @@
+services:
+  ledgerlite:
+    build: .
+    image: ledgerlite:latest
+    ports:
+      - "8000:8000"
+    environment:
+      LEDGERLITE_DB: /data/ledgerlite.db
+    volumes:
+      - ledger-data:/data
+    restart: unless-stopped
+
+volumes:
+  ledger-data:
