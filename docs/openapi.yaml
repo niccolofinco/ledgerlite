@@ -1,0 +1,312 @@
+openapi: 3.0.3
+info:
+  title: LedgerLite API
+  version: 0.1.0
+  description: |
+    Double-entry bookkeeping service. Amounts are decimal strings with at most 2 decimals.
+    Balances in reports are expressed on the account's normal side
+    (debit for asset/expense, credit for liability/equity/income).
+servers:
+  - url: http://localhost:8000
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string, example: ok } } }
+  /accounts:
+    get:
+      summary: List accounts (ordered by code)
+      responses:
+        "200":
+          description: Accounts
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Account" } }
+    post:
+      summary: Create an account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccountCreate" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /accounts/{accountId}:
+    parameters: [ { $ref: "#/components/parameters/AccountId" } ]
+    get:
+      summary: Get an account
+      responses:
+        "200":
+          description: Account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /accounts/{accountId}/deactivate:
+    parameters: [ { $ref: "#/components/parameters/AccountId" } ]
+    post:
+      summary: Deactivate an account (allowed only when its balance is zero; idempotent)
+      responses:
+        "200":
+          description: Deactivated account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /accounts/{accountId}/balance:
+    parameters:
+      - $ref: "#/components/parameters/AccountId"
+      - { name: as_of, in: query, required: false, schema: { type: string, format: date } }
+    get:
+      summary: Balance of an account, optionally as of a date (inclusive)
+      responses:
+        "200":
+          description: Balance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Balance" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /accounts/{accountId}/statement:
+    parameters:
+      - $ref: "#/components/parameters/AccountId"
+      - { name: date_from, in: query, required: false, schema: { type: string, format: date } }
+      - { name: date_to, in: query, required: false, schema: { type: string, format: date } }
+    get:
+      summary: Account statement with running balance
+      responses:
+        "200":
+          description: Statement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Statement" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /transactions:
+    get:
+      summary: List transactions (ordered by date, then insertion order)
+      parameters:
+        - { name: account_id, in: query, schema: { type: string } }
+        - { name: date_from, in: query, schema: { type: string, format: date } }
+        - { name: date_to, in: query, schema: { type: string, format: date } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    post:
+      summary: Record a balanced transaction
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Replays with the same key and payload return the original transaction (200).
+          schema: { type: string, minLength: 1, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransactionCreate" }
+      responses:
+        "200":
+          description: Idempotent replay of an existing transaction
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transaction" }
+        "201":
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transaction" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /transactions/{transactionId}:
+    parameters: [ { $ref: "#/components/parameters/TransactionId" } ]
+    get:
+      summary: Get a transaction
+      responses:
+        "200":
+          description: Transaction
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transaction" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /transactions/{transactionId}/reverse:
+    parameters: [ { $ref: "#/components/parameters/TransactionId" } ]
+    post:
+      summary: Reverse a transaction (append an offsetting transaction)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string, format: date, description: Defaults to today }
+                description: { type: string, maxLength: 200 }
+      responses:
+        "201":
+          description: The reversing transaction
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transaction" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /reports/trial-balance:
+    get:
+      summary: Trial balance (total debit always equals total credit)
+      parameters:
+        - { name: as_of, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Trial balance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrialBalance" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+components:
+  parameters:
+    AccountId: { name: accountId, in: path, required: true, schema: { type: string } }
+    TransactionId: { name: transactionId, in: path, required: true, schema: { type: string } }
+  responses:
+    NotFound:
+      description: Entity not found
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: Conflicts with the current state
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ValidationError:
+      description: Invalid input
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, enum: [validation_error, not_found, conflict, method_not_allowed, ledger_error] }
+            message: { type: string }
+    AccountType:
+      type: string
+      enum: [asset, liability, equity, income, expense]
+    Side:
+      type: string
+      enum: [debit, credit]
+    Amount:
+      type: string
+      pattern: '^-?[0-9]{1,11}(\.[0-9]{1,2})?$'
+      example: "12.50"
+    AccountCreate:
+      type: object
+      required: [code, name, type]
+      properties:
+        code: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{0,19}$', example: CASH }
+        name: { type: string, minLength: 1, maxLength: 100, example: Cash }
+        type: { $ref: "#/components/schemas/AccountType" }
+    Account:
+      allOf:
+        - $ref: "#/components/schemas/AccountCreate"
+        - type: object
+          properties:
+            id: { type: string }
+            normal_side: { $ref: "#/components/schemas/Side" }
+            active: { type: boolean }
+    Posting:
+      type: object
+      required: [account_id, side, amount]
+      properties:
+        account_id: { type: string }
+        side: { $ref: "#/components/schemas/Side" }
+        amount:
+          allOf: [ { $ref: "#/components/schemas/Amount" } ]
+          description: Strictly positive in requests
+    TransactionCreate:
+      type: object
+      required: [date, description, postings]
+      properties:
+        date: { type: string, format: date, description: Must not be in the future }
+        description: { type: string, minLength: 1, maxLength: 200 }
+        postings:
+          type: array
+          minItems: 2
+          items: { $ref: "#/components/schemas/Posting" }
+          description: Total debits must equal total credits
+    Transaction:
+      allOf:
+        - $ref: "#/components/schemas/TransactionCreate"
+        - type: object
+          properties:
+            id: { type: string }
+            reverses: { type: string, nullable: true }
+            created_at: { type: string, format: date-time }
+    Balance:
+      type: object
+      properties:
+        account_id: { type: string }
+        code: { type: string }
+        as_of: { type: string, format: date, nullable: true }
+        normal_side: { $ref: "#/components/schemas/Side" }
+        balance: { $ref: "#/components/schemas/Amount" }
+    Statement:
+      type: object
+      properties:
+        account_id: { type: string }
+        code: { type: string }
+        date_from: { type: string, format: date, nullable: true }
+        date_to: { type: string, format: date, nullable: true }
+        normal_side: { $ref: "#/components/schemas/Side" }
+        opening_balance: { $ref: "#/components/schemas/Amount" }
+        closing_balance: { $ref: "#/components/schemas/Amount" }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              transaction_id: { type: string }
+              description: { type: string }
+              side: { $ref: "#/components/schemas/Side" }
+              amount: { $ref: "#/components/schemas/Amount" }
+              running_balance: { $ref: "#/components/schemas/Amount" }
+    TrialBalance:
+      type: object
+      properties:
+        as_of: { type: string, format: date, nullable: true }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              account_id: { type: string }
+              code: { type: string }
+              name: { type: string }
+              type: { $ref: "#/components/schemas/AccountType" }
+              debit: { $ref: "#/components/schemas/Amount" }
+              credit: { $ref: "#/components/schemas/Amount" }
+        total_debit: { $ref: "#/components/schemas/Amount" }
+        total_credit: { $ref: "#/components/schemas/Amount" }
+        balanced: { type: boolean }
