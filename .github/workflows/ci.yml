@@ -49,11 +49,11 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -e .
       - name: Unit tests
-        run: pytest tests/unit --cov=ledgerlite --cov-branch --cov-append --cov-report=
+        run: pytest tests/unit --cov=ledgerlite --cov-branch --cov-append --cov-report= --cov-fail-under=0
       - name: Integration tests
-        run: pytest tests/integration --cov=ledgerlite --cov-branch --cov-append --cov-report=
+        run: pytest tests/integration --cov=ledgerlite --cov-branch --cov-append --cov-report= --cov-fail-under=0
       - name: Property-based tests
-        run: pytest tests/property --cov=ledgerlite --cov-branch --cov-append --cov-report= --hypothesis-show-statistics
+        run: pytest tests/property --cov=ledgerlite --cov-branch --cov-append --cov-report= --cov-fail-under=0 --hypothesis-show-statistics
       - name: Coverage report (fails below the threshold in pyproject.toml)
         run: |
           coverage report
