@@ -45,7 +45,7 @@ def balanced_legs(draw) -> Legs:
             )
         )
     points = [0, *sorted(cuts), total]
-    credits = [end - start for start, end in zip(points, points[1:])]
+    credits = [end - start for start, end in zip(points, points[1:], strict=False)]
     legs: Legs = []
     for amount in debits:
         legs.append((draw(st.integers(0, ACCOUNT_COUNT - 1)), amount))
